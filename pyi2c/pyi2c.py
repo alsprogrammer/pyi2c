@@ -8,35 +8,46 @@
 # this is distributed under a free software license, see license.txt
 
 import time
-import logging
+
+from pyi2c.drivers import GPIOI2CBus
 
 I2C_REGISTER_WRITE = 0
 I2C_REGISTER_READ = 1
-
-log = logging.getLogger("I2C")
 
 
 class ProtocolError:
     pass
 
 
-class I2Cbits:
-    """ I2C SDA/SCL bit level management """
+class I2CProtocol:
+    def __init__(self, bus: GPIOI2CBus):
+        self.bus = bus
+        self._error_happened = False
+        self.error_message = None
 
-    def _start(self):
+    def error(self, message: str):
+        self._error_happened = True
+        self.error_message = message
+
+    def error_reset(self):
+        self._error_happened = False
+        self.error_message = None
+
+    def start(self):
         self.bus.write(sda=1, scl=1)
         self.bus.write(sda=0, scl=1)
         self.bus.write(sda=0, scl=0)
 
-    def _send(self, value):
+    def send(self, value: int) -> None:
         x = 0x80
         while x:
-            self.bus.write(sda=((x & value) and 1), scl=0)
-            self.bus.write(sda=((x & value) and 1), scl=1)
-            self.bus.write(sda=((x & value) and 1), scl=0)
+            sending_bit = ((x & value) and 1)
+            self.bus.write(sda=sending_bit, scl=0)
+            self.bus.write(sda=sending_bit, scl=1)
+            self.bus.write(sda=sending_bit, scl=0)
             x = x >> 1
 
-    def _read(self):
+    def read(self) -> int:
         x = 0x80
         value = 0
         while x:
@@ -47,7 +58,7 @@ class I2Cbits:
             x = x >> 1
         return value
 
-    def _ack(self, error=None):
+    def ack(self, error: str = None) -> int:
         self.bus.write(sda=1, scl=0)
         self.bus.write(sda=1, scl=1)
         sda = self.bus.read()
@@ -55,47 +66,42 @@ class I2Cbits:
 
         if sda and error:
             self.error("I2C NACK: %s" % error)
-            self.protocolError = True
         else:
-            self.protocolError = False  # cancel any previous error
+            self.error_reset()  # cancel any previous error
         return not sda
 
-    def _send_ack(self):
+    def send_ack(self):
         self.bus.write(sda=0, scl=0)
         self.bus.write(sda=0, scl=1)
         self.bus.write(sda=0, scl=0)
 
-    def _send_nack(self):
+    def send_nack(self):
         self.bus.write(sda=1, scl=0)
         self.bus.write(sda=1, scl=1)
         self.bus.write(sda=1, scl=0)
         self.bus.write(sda=0, scl=0)
 
-    def _stop(self):
+    def stop(self):
         self.bus.write(sda=0, scl=0)
         self.bus.write(sda=0, scl=1)
         self.bus.write(sda=1, scl=1)
 
 
-class BusI2C(I2Cbits):
-    """ I2C bus """
-
-    def __init__(self, pport='LPT1'):
-        self.bus = _DRIVER_FACTORY.create(pport)
+class I2CBus:
+    def __init__(self, protocol: I2CProtocol):
+        self._bus = protocol
         self.protocolError = False
-        log.info('I2C started on [%s]' % pport)
 
     def scan(self, i2c_start_address):
         address_ok = None
         for address in range(i2c_start_address, i2c_start_address + 0x10, 2):
-            log.info("Scanning address : %02X" % address)
-            self._start()
-            self._send(address)
-            if self._ack():
+            self._bus.start()
+            self._bus.send(address)
+            if self._bus.ack():
                 address_ok = address
-            self._read()
-            self._send_nack()
-            self._stop()
+            self._bus.read()
+            self._bus.send_nack()
+            self._bus.stop()
             if address_ok:
                 return address_ok
         self.error("no I2C component found !")
@@ -104,88 +110,47 @@ class BusI2C(I2Cbits):
         raise ProtocolError
 
     def write_register(self, address, register, value, err="I2C target register access denied !"):
-        self._start()
-        self._send(address | I2C_REGISTER_WRITE)
-        self._ack(err)
-        self._send(register)
-        self._ack(err)
-        self._send(value)
-        self._ack(err)
-        self._send(0)
-        self._ack(err)
-        self._stop()
+        self._bus.start()
+        self._bus.send(address | I2C_REGISTER_WRITE)
+        self._bus.ack(err)
+        self._bus.send(register)
+        self._bus.ack(err)
+        self._bus.send(value)
+        self._bus.ack(err)
+        self._bus.send(0)
+        self._bus.ack(err)
+        self._bus.stop()
 
     def read_register(self, address, register, err="cannot _read I2C target register !"):
-        self._start()
-        self._send(address | I2C_REGISTER_WRITE)
-        self._ack(err)
-        self._send(register)
-        self._ack(err)
-        self._stop()
+        self._bus.start()
+        self._bus.send(address | I2C_REGISTER_WRITE)
+        self._bus.ack(err)
+        self._bus.send(register)
+        self._bus.ack(err)
+        self._bus.stop()
         time.sleep(0.1)
-        self._start()
-        self._send(address | I2C_REGISTER_READ)
-        self._ack(err)
-        data = self._read()
-        self._send_nack()
-        self._stop()
+        self._bus.start()
+        self._bus.send(address | I2C_REGISTER_READ)
+        self._bus.ack(err)
+        data = self._bus.read()
+        self._bus.send_nack()
+        self._bus.stop()
         return data
 
     def read_register_word(self, address, register, err="cannot _read I2C target register !"):
-        self._start()
-        self._send(address | I2C_REGISTER_WRITE)
-        self._ack(err)
-        self._send(register)
-        self._ack(err)
-        self._stop()
+        self._bus.start()
+        self._bus.send(address | I2C_REGISTER_WRITE)
+        self._bus.ack(err)
+        self._bus.send(register)
+        self._bus.ack(err)
+        self._bus.stop()
         time.sleep(0.1)
-        self._start()
-        self._send(address | I2C_REGISTER_READ)
-        self._ack(err)
-        data1 = self._read()
+        self._bus.start()
+        self._bus.send(address | I2C_REGISTER_READ)
+        self._bus.ack(err)
+        data1 = self._bus.read()
         self._send_ack()
-        data2 = self._read()
-        self._send_nack()
-        self._stop()
+        data2 = self._bus.read()
+        self._bus.send_nack()
+        self._bus.stop()
         return data1, data2
-
-
-class DriversFactory:
-    """ this class scan for available drivers, available interfaces
-        and build a list for driver factory.
-
-    Each driver returns a list of names corresponding on interface
-    he can handle plus the the way it does that. Two drivers can handle
-    the same periphal in two different ways (not the same I2C pinning),
-    they simply must return different names.
-
-    For example, drivers/Philipps.py could be a copy of drivers/lpt.py
-    adapted to the Philipps I2C demo card pinning. This driver must simply
-    returns a different key string for each port he can drive.
-
-    You may also add drivers for LP printer port (actually, only ppdev is
-    available thrue pyParalell) or KeyBoard, USB, etc...
-
-    Your contribution is welcome !
-
-    """
-
-    def __init__(self):
-        self._drivers = {}
-
-    def register(self, driver, name):
-        log.debug('registering driver %s' % name)
-        self._drivers[name] = driver
-
-    def create(self, name, *args, **kw):
-        driver_factory = self._drivers.get(name)
-        if driver_factory is None:
-            raise RuntimeError("No driver for %s or resource busy" % name)
-        driver = driver_factory(name, *args, **kw)
-        return driver
-
-    def get_drivers(self):
-        return self._drivers
-
-
-_DRIVER_FACTORY = DriversFactory()
