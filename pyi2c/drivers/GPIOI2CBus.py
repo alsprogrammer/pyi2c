@@ -9,3 +9,7 @@ class GPIOI2CBus(ABC):
     @abstractmethod
     def read(self) -> int:
         pass
+
+    @abstractmethod
+    def wait_for_scl(self) -> None:
+        pass

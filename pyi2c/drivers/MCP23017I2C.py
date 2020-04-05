@@ -28,6 +28,10 @@ class MCP23017I2C(GPIOI2CBus):
         self._pin_high(self._sda_pin)
         return self._sda_pin.value
 
+    def wait_for_scl(self) -> None:
+        while not self._scl_pin.value:
+            pass
+
     @staticmethod
     def _pin_low(pin):
         pin.direction = digitalio.Direction.OUTPUT

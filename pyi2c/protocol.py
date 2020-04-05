@@ -21,9 +21,12 @@ class I2CProtocol:
         self.bus.write(sda=0, scl=0)
 
     def send(self, value: int) -> None:
+        self.bus.wait_for_scl()
+
         x = 0x80
         while x:
             sending_bit = ((x & value) and 1)
+
             self.bus.write(sda=sending_bit, scl=0)
             self.bus.write(sda=sending_bit, scl=1)
             self.bus.write(sda=sending_bit, scl=0)
