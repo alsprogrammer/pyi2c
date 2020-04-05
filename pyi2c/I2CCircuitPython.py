@@ -17,8 +17,14 @@ class I2CCircuitPython:
     def __exit__(self, exc_type, exc_value, traceback):
         self.deinit()
 
+    def try_lock(self):
+        return True
+
+    def unlock(self):
+        pass
+
     def scan(self):
-        return self._i2c.scan()
+        return self._protocol.scan()
 
     def readfrom_into(self, address, buffer, *, start=0, end=None):
         end = end if end else len(buffer)
