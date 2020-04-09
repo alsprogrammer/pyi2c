@@ -1,8 +1,8 @@
-from pyi2c.drivers import GPIOI2CBus
+from pyi2c import gpio_i2c_bus
 
 
 class I2CProtocol:
-    def __init__(self, bus: GPIOI2CBus):
+    def __init__(self, bus: gpio_i2c_bus):
         self.bus = bus
         self._error_happened = False
         self.error_message = None

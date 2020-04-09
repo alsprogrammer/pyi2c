@@ -4,7 +4,7 @@ I2C_REGISTER_WRITE = 0
 I2C_REGISTER_READ = 1
 
 
-class I2CCircuitPython:
+class CircuitPythonI2C:
     def __init__(self, protocol: I2CProtocol):
         self._protocol = protocol
 
